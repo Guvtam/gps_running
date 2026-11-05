@@ -41,7 +41,7 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen> {
 
   Future<void> _reload() async {
     final next = _load();
-    setState(() => _future = next);
+    setState(() { _future = next; });
     // FutureBuilder shows loading failures and offers a retry.
     try { await next; } catch (_) { /* The error is shown below. */ }
   }
