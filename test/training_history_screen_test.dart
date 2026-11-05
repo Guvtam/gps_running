@@ -33,7 +33,7 @@ Future<void> tapKey(WidgetTester tester, String key) async {
   await tester.runAsync(() async {
     await tester.tap(target);
     await Future<void>.delayed(Duration.zero);
-  }, timeout: const Timeout(Duration(seconds: 30)));
+  });
   await tester.pumpAndSettle();
 }
 
@@ -78,7 +78,7 @@ void main() {
     await mount(tester, load: () async {
       if (fail) throw StateError('Unavailable');
       return samples();
-    }, timeout: const Timeout(Duration(seconds: 30)));
+    });
     expect(find.text('No se pudo cargar el historial'), findsOneWidget);
     fail = false;
     await tester.tap(find.text('Reintentar'));
