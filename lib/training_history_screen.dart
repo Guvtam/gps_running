@@ -63,7 +63,7 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen> {
                     MaterialPageRoute(builder: (_) => TrainingDetailScreen(training: training))),
                     icon: const Icon(Icons.visibility_outlined), label: const Text('Ver detalle')),
                   OutlinedButton.icon(onPressed: training.routePoints.isEmpty ? null : () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => RouteMapScreen(routePoints: training.routePoints))),
+                    MaterialPageRoute(builder: (_) => RouteMapScreen(routePoints: training.routePoints, routeSegments: training.routeSegments))),
                     icon: const Icon(Icons.map_outlined), label: const Text('Ver recorrido')),
                   IconButton(onPressed: () => _delete(training), icon: const Icon(Icons.delete_outline), tooltip: 'Eliminar carrera'),
                 ]),
@@ -74,3 +74,4 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen> {
     ),
   );
 }
+
