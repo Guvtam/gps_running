@@ -12,10 +12,14 @@ import 'gps_filter_test.dart' show fix;
 import 'running_controller_test.dart' show FakeLocation;
 
 Future<(RunningController, FakeLocation)> mountRunner(WidgetTester tester) async {
-  final gps = FakeLocation();
-  final controller = RunningController(location: gps);
-  await controller.initialize();
-  await controller.startPause();
+  final fixture = await tester.runAsync(() async {
+    final gps = FakeLocation();
+    final controller = RunningController(location: gps);
+    await controller.initialize();
+    await controller.startPause();
+    return (controller, gps);
+  });
+  final (controller, gps) = fixture!;
   await tester.pumpWidget(MaterialApp(home: RunningScreen(controller: controller)));
   await tester.pumpAndSettle();
   return (controller, gps);
@@ -23,8 +27,10 @@ Future<(RunningController, FakeLocation)> mountRunner(WidgetTester tester) async
 
 Future<void> cleanUp(WidgetTester tester, RunningController c, FakeLocation gps) async {
   await tester.pumpWidget(const SizedBox.shrink());
-  c.dispose();
-  await gps.updates.close();
+  await tester.runAsync(() async {
+    c.dispose();
+    await gps.updates.close();
+  });
 }
 
 Future<void> tapKey(WidgetTester tester, String key) async {
@@ -45,7 +51,7 @@ void main() {
     expect(controller.running, isTrue);
     await tapKey(tester, 'end_cancel');
     expect(controller.running, isTrue);
-    expect(await TrainingStorage.getTrainings(), isEmpty);
+    expect(await tester.runAsync(TrainingStorage.getTrainings), isEmpty);
     await cleanUp(tester, controller, gps);
   }, timeout: const Timeout(Duration(seconds: 30)));
 
@@ -55,8 +61,8 @@ void main() {
     await tapKey(tester, 'save_confirm');
     expect(find.text('Detalle del entrenamiento'), findsOneWidget);
     expect(controller.started, isFalse);
-    expect((await TrainingStorage.getTrainings()).length, 1);
-    expect(await TrainingStorage.getActiveTraining(), isNull);
+    expect((await tester.runAsync(TrainingStorage.getTrainings))!.length, 1);
+    expect(await tester.runAsync(TrainingStorage.getActiveTraining), isNull);
     await cleanUp(tester, controller, gps);
   }, timeout: const Timeout(Duration(seconds: 30)));
 
@@ -70,19 +76,23 @@ void main() {
     await tapKey(tester, 'discard_confirm');
     expect(controller.started, isFalse);
     expect(find.text('Lista para comenzar'), findsOneWidget);
-    expect(await TrainingStorage.getActiveTraining(), isNull);
-    expect(await TrainingStorage.getTrainings(), isEmpty);
+    expect(await tester.runAsync(TrainingStorage.getActiveTraining), isNull);
+    expect(await tester.runAsync(TrainingStorage.getTrainings), isEmpty);
     await cleanUp(tester, controller, gps);
   }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('GPS startup has its own progress label and disables the main button', (tester) async {
-    final gps = FakeLocation();
-    final pending = Completer<Position>();
-    gps.prepareOverride = () => pending.future;
-    final controller = RunningController(location: gps);
-    await controller.initialize();
+    final fixture = await tester.runAsync(() async {
+      final gps = FakeLocation();
+      final pending = Completer<Position>();
+      gps.prepareOverride = () => pending.future;
+      final controller = RunningController(location: gps);
+      await controller.initialize();
+      return (controller, gps, pending);
+    });
+    final (controller, gps, pending) = fixture!;
     await tester.pumpWidget(MaterialApp(home: RunningScreen(controller: controller)));
-    final start = controller.startPause();
+    final start = tester.runAsync(controller.startPause);
     await tester.pump();
     expect(find.text('Esperando una posición GPS precisa…'), findsOneWidget);
     expect(find.text('Guardando...'), findsNothing);
@@ -91,7 +101,7 @@ void main() {
     await start;
     await tester.pumpAndSettle();
     expect(find.text('Grabando recorrido'), findsOneWidget);
-    await controller.startPause();
+    await tester.runAsync(controller.startPause);
     await tester.pumpAndSettle();
     expect(find.text('Carrera en pausa'), findsWidgets);
     await cleanUp(tester, controller, gps);
