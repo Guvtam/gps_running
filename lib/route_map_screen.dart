@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 class RouteMapScreen extends StatefulWidget {
   final List<LatLng> routePoints;
+  final List<List<LatLng>>? routeSegments;
+  final ValueListenable<List<List<LatLng>>>? liveSegments;
 
   const RouteMapScreen({
     super.key,
     required this.routePoints,
+    this.routeSegments,
+    this.liveSegments,
   });
 
   @override
@@ -20,28 +25,34 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   bool _locating = false;
   String? _locationError;
 
-  bool get _hasRoute => widget.routePoints.isNotEmpty;
+  bool _mapReady = false;
+  bool _follow = true;
+  List<List<LatLng>> get _segments => widget.liveSegments?.value ??
+      widget.routeSegments ?? [widget.routePoints];
+  List<LatLng> get _points => _segments.expand((segment) => segment).toList();
+  bool get _hasRoute => _points.isNotEmpty;
+
+  void _routeChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_mapReady && _follow && _hasRoute) _fitRoute();
+  }
 
   @override
   void initState() {
     super.initState();
-    // Sin ruta, se consulta la ubicación real en lugar de fijar Santiago.
-    if (!_hasRoute) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _centerOnGps();
-      });
-    }
+    widget.liveSegments?.addListener(_routeChanged);
   }
 
   void _fitRoute() {
-    if (!_hasRoute) return;
-    if (widget.routePoints.length == 1) {
-      _mapController.move(widget.routePoints.first, 16);
+    if (!_mapReady || !_hasRoute) return;
+    if (_points.length == 1) {
+      _mapController.move(_points.first, 16);
       return;
     }
     _mapController.fitCamera(
       CameraFit.coordinates(
-        coordinates: widget.routePoints,
+        coordinates: _points,
         padding: const EdgeInsets.all(54),
         maxZoom: 17,
       ),
@@ -49,7 +60,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   Future<void> _centerOnGps() async {
-    if (_locating) return;
+    if (_locating || !_mapReady) return;
+    _follow = false;
     setState(() {
       _locating = true;
       _locationError = null;
@@ -88,13 +100,14 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
 
   @override
   void dispose() {
+    widget.liveSegments?.removeListener(_routeChanged);
     _mapController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final points = widget.routePoints;
+    final points = _points;
     // Este centro es provisional mientras llega el GPS, no la ubicación del usuario.
     final initialCenter = _hasRoute
         ? points.first
@@ -114,7 +127,12 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               initialCenter: initialCenter,
               initialZoom: _hasRoute ? 15 : 11,
               onMapReady: () {
-                if (_hasRoute) _fitRoute();
+                _mapReady = true;
+                if (_hasRoute) { _fitRoute(); }
+                else { _centerOnGps(); }
+              },
+              onPositionChanged: (_, hasGesture) {
+                if (hasGesture) _follow = false;
               },
             ),
             children: [
@@ -127,8 +145,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               if (points.length >= 2)
                 PolylineLayer(
                   polylines: [
+                    for (final segment in _segments.where((s) => s.length >= 2))
                     Polyline(
-                      points: points,
+                      points: segment,
                       strokeWidth: 5,
                       color: const Color(0xFF26A884),
                     ),
@@ -195,7 +214,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                     heroTag: 'fit_route',
                     backgroundColor: const Color(0xFF22313B),
                     foregroundColor: Colors.white,
-                    onPressed: _fitRoute,
+                    onPressed: () { _follow = true; _fitRoute(); },
                     tooltip: 'Mostrar recorrido completo',
                     child: const Icon(Icons.zoom_out_map),
                   ),
@@ -224,3 +243,4 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     );
   }
 }
+

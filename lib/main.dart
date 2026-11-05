@@ -2,11 +2,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
 
-import 'training_record.dart';
-import 'training_storage.dart';
+import 'running_controller.dart';
 import 'training_history_screen.dart';
 import 'route_map_screen.dart';
 import 'formatters.dart';
@@ -51,291 +48,47 @@ class RunningScreen extends StatefulWidget {
 
 class _RunningScreenState extends State<RunningScreen>
     with WidgetsBindingObserver {
-  final Stopwatch _watch = Stopwatch();
-
-  Timer? _timer;
-  StreamSubscription<Position>? _gpsSubscription;
-
-  final List<LatLng> _route = [];
-
-  Position? _lastPosition;
-  DateTime? _startTime;
-
-  double _distanceMeters = 0;
-
-  String _gpsStatus = 'GPS sin comprobar';
-
-  bool _started = false;
-  bool _saving = false;
+  final RunningController _controller = RunningController();
 
   @override
   void initState() {
     super.initState();
-
     WidgetsBinding.instance.addObserver(this);
+    _controller.addListener(_refresh);
+    unawaited(_controller.initialize());
+  }
 
-    _timer = Timer.periodic(
-      const Duration(milliseconds: 300),
-      (_) {
-        if (mounted && _watch.isRunning) {
-          setState(() {});
-        }
-      },
-    );
+  void _refresh() { if (mounted) setState(() {}); }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      unawaited(_controller.checkpoint());
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-
-    _timer?.cancel();
-    _gpsSubscription?.cancel();
-
+    _controller.removeListener(_refresh);
+    _controller.dispose();
     super.dispose();
   }
 
-  Future<bool> _ensureGps() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      if (mounted) {
-        setState(() {
-          _gpsStatus =
-              'Activa la ubicación del teléfono';
-        });
-      }
-      return false;
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        setState(() {
-          _gpsStatus =
-              'Permiso de ubicación denegado';
-        });
-      }
-      return false;
-    }
-
-    return true;
-  }
-
-  Future<void> _checkGps() async {
-    try {
-      if (!await _ensureGps()) return;
-
-      final position =
-          await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-
-      if (mounted) {
-        setState(() {
-          _gpsStatus =
-              'GPS conectado · precisión '
-              '${position.accuracy.toStringAsFixed(1)} m';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _gpsStatus =
-              'No se pudo comprobar GPS: $e';
-        });
-      }
-    }
-  }
-
-  Future<void> _startTracking() async {
-    if (!await _ensureGps()) return;
-
-    await _gpsSubscription?.cancel();
-
-    _lastPosition = null;
-
-    // AndroidSettings no admite un constructor const.
-    final settings = AndroidSettings(
-      accuracy: LocationAccuracy.best,
-      distanceFilter: 5,
-      intervalDuration: const Duration(seconds: 2),
-      foregroundNotificationConfig:
-          const ForegroundNotificationConfig(
-        notificationTitle:
-            'GPS Running · carrera activa',
-        notificationText:
-            'Registrando tu recorrido con GPS',
-        enableWakeLock: true,
-        setOngoing: true,
-      ),
-    );
-
-    _gpsSubscription = Geolocator.getPositionStream(
-      locationSettings: settings,
-    ).listen(
-      (position) {
-        if (position.accuracy > 25) return;
-
-        final previous = _lastPosition;
-
-        if (previous != null) {
-          final delta = position.timestamp
-                  .difference(previous.timestamp)
-                  .inMilliseconds /
-              1000;
-
-          final meters = Geolocator.distanceBetween(
-            previous.latitude,
-            previous.longitude,
-            position.latitude,
-            position.longitude,
-          );
-
-          if (delta <= 0 || meters / delta > 8) {
-            return;
-          }
-
-          _distanceMeters += meters;
-        }
-
-        _lastPosition = position;
-
-        _route.add(
-          LatLng(
-            position.latitude,
-            position.longitude,
-          ),
-        );
-
-        if (mounted) {
-          setState(() {
-            _gpsStatus =
-                'GPS conectado · precisión '
-                '${position.accuracy.toStringAsFixed(1)} m';
-          });
-        }
-      },
-      onError: (Object error) {
-        if (mounted) {
-          setState(() {
-            _gpsStatus =
-                'Error de seguimiento GPS: $error';
-          });
-        }
-      },
-    );
-  }
-
-  Future<void> _stopTracking() async {
-    await _gpsSubscription?.cancel();
-
-    _gpsSubscription = null;
-    _lastPosition = null;
-  }
-
-  Future<void> _startPause() async {
-    if (_saving) return;
-
-    if (_watch.isRunning) {
-      _watch.stop();
-      await _stopTracking();
-    } else {
-      _startTime ??= DateTime.now();
-
-      _started = true;
-
-      _watch.start();
-
-      try {
-        await _startTracking();
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _gpsStatus =
-                'No se pudo iniciar GPS: $e';
-          });
-        }
-      }
-    }
-
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
   Future<void> _finish() async {
-    if (!_started || _saving) return;
-
-    setState(() {
-      _saving = true;
-    });
-
-    _watch.stop();
-
-    try {
-      await _stopTracking();
-
-      final training = TrainingRecord(
-        id: DateTime.now()
-            .microsecondsSinceEpoch
-            .toString(),
-        startTime: _startTime ?? DateTime.now(),
-        durationSeconds:
-            (_watch.elapsedMilliseconds / 1000).round(),
-        distanceMeters: _distanceMeters,
-        routePoints: List<LatLng>.of(_route),
+    if (await _controller.finish() && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Entrenamiento guardado')),
       );
-
-      await TrainingStorage.saveTraining(training);
-
-      _watch.reset();
-      _started = false;
-      _startTime = null;
-      _distanceMeters = 0;
-      _route.clear();
-      _lastPosition = null;
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Entrenamiento guardado'),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'No se pudo guardar: $e',
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
     }
   }
 
   void _openRouteMap() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RouteMapScreen(
-          routePoints: List<LatLng>.of(_route),
-        ),
-      ),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => RouteMapScreen(
+      routePoints: _controller.current.routePoints,
+      routeSegments: _controller.current.routeSegments,
+      liveSegments: _controller.route,
+    )));
   }
 
   void _openTrainingHistory() {
@@ -350,13 +103,8 @@ class _RunningScreenState extends State<RunningScreen>
 
   @override
   Widget build(BuildContext context) {
-    final current = TrainingRecord(
-      id: '',
-      startTime: _startTime ?? DateTime.now(),
-      durationSeconds: _watch.elapsed.inSeconds,
-      distanceMeters: _distanceMeters,
-      routePoints: _route,
-    );
+    final current = _controller.current;
+    final disabled = _controller.busy || !_controller.ready;
 
     return Scaffold(
       appBar: AppBar(
@@ -380,7 +128,7 @@ class _RunningScreenState extends State<RunningScreen>
 
               Text(
                 formatDuration(
-                  _watch.elapsed.inSeconds,
+                  _controller.seconds,
                 ),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
@@ -405,7 +153,7 @@ class _RunningScreenState extends State<RunningScreen>
                   Expanded(
                     child: _metric(
                       'DISTANCIA',
-                      '${(_distanceMeters / 1000).toStringAsFixed(2)} km',
+                      '${(_controller.distanceMeters / 1000).toStringAsFixed(2)} km',
                       Icons.route,
                     ),
                   ),
@@ -423,21 +171,29 @@ class _RunningScreenState extends State<RunningScreen>
               const SizedBox(height: 20),
 
               Text(
-                _gpsStatus,
+                _controller.status,
                 textAlign: TextAlign.center,
               ),
 
+              if (_controller.storageError != null)
+                Text(_controller.storageError!, textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.orange)),
+              if (!_controller.ready && !_controller.busy)
+                TextButton(onPressed: _controller.initialize,
+                  child: const Text('Reintentar recuperación')),
+              if (_controller.busy)
+                const LinearProgressIndicator(),
               const SizedBox(height: 12),
 
               OutlinedButton.icon(
                 onPressed:
-                    _saving ? null : _checkGps,
+                    _controller.busy ? null : _controller.checkGps,
                 icon: const Icon(Icons.gps_fixed),
                 label: const Text('Comprobar GPS'),
               ),
 
               OutlinedButton.icon(
-                onPressed: _openRouteMap,
+                onPressed: disabled ? null : _openRouteMap,
                 icon:
                     const Icon(Icons.map_outlined),
                 label: const Text('Ver recorrido'),
@@ -454,30 +210,30 @@ class _RunningScreenState extends State<RunningScreen>
 
               ElevatedButton.icon(
                 onPressed:
-                    _saving ? null : _startPause,
+                    disabled ? null : _controller.startPause,
                 icon: Icon(
-                  _watch.isRunning
+                  _controller.running
                       ? Icons.pause
                       : Icons.play_arrow,
                 ),
                 label: Text(
-                  _watch.isRunning
+                  _controller.running
                       ? 'Pausar carrera'
-                      : (_started
+                      : (_controller.started
                           ? 'Reanudar carrera'
                           : 'Iniciar carrera'),
                 ),
               ),
 
-              if (_started) ...[
+              if (_controller.started) ...[
                 const SizedBox(height: 10),
 
                 OutlinedButton.icon(
                   onPressed:
-                      _saving ? null : _finish,
+                      disabled ? null : _finish,
                   icon: const Icon(Icons.flag),
                   label: Text(
-                    _saving
+                    _controller.busy
                         ? 'Guardando...'
                         : 'Finalizar carrera',
                   ),
@@ -546,3 +302,4 @@ class _RunningScreenState extends State<RunningScreen>
     );
   }
 }
+

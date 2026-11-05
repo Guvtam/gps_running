@@ -23,7 +23,7 @@ class TrainingDetailScreen extends StatelessWidget {
       const SizedBox(height: 20),
       ElevatedButton.icon(
         onPressed: training.routePoints.isEmpty ? null : () => Navigator.push(context,
-          MaterialPageRoute(builder: (_) => RouteMapScreen(routePoints: training.routePoints))),
+          MaterialPageRoute(builder: (_) => RouteMapScreen(routePoints: training.routePoints, routeSegments: training.routeSegments))),
         icon: const Icon(Icons.map_outlined), label: const Text('Ver mapa del recorrido'),
       ),
     ]),
@@ -35,3 +35,4 @@ class TrainingDetailScreen extends StatelessWidget {
     ])),
   );
 }
+
