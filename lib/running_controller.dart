@@ -61,6 +61,8 @@ class PhoneRunningLocation implements RunningLocation {
   }
 }
 
+enum RunningOperation { recovering, checkingGps, starting, pausing, saving, discarding }
+
 class RunningController extends ChangeNotifier {
   RunningController({RunningLocation? location})
       : _location = location ?? PhoneRunningLocation();
@@ -83,7 +85,24 @@ class RunningController extends ChangeNotifier {
   bool _disposed = false;
   bool _checkpointPending = false;
   bool ready = false;
-  bool busy = false;
+  RunningOperation? _operation;
+  TrainingRecord? _lastSavedTraining;
+  bool get busy => _operation != null;
+  TrainingRecord? get lastSavedTraining => _lastSavedTraining;
+  String get operationLabel => switch (_operation) {
+    RunningOperation.recovering => 'Recuperando datos…',
+    RunningOperation.checkingGps => 'Comprobando GPS…',
+    RunningOperation.starting => 'Esperando una posición GPS precisa…',
+    RunningOperation.pausing => 'Pausando carrera…',
+    RunningOperation.saving => 'Guardando entrenamiento…',
+    RunningOperation.discarding => 'Descartando carrera…',
+    null => '',
+  };
+  String get sessionLabel {
+    if (!ready) return 'Recuperación pendiente';
+    if (running) return 'Grabando recorrido';
+    return started ? 'Carrera en pausa' : 'Lista para comenzar';
+  }
   String status = 'GPS sin comprobar';
   String? storageError;
 
@@ -101,7 +120,8 @@ class RunningController extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (ready || busy || _disposed) return;
-    busy = true;
+    _operation = RunningOperation.recovering;
+    _notify();
     try {
       final active = await TrainingStorage.getActiveTraining();
       if (_disposed) return;
@@ -126,7 +146,7 @@ class RunningController extends ChangeNotifier {
       status = 'No se pudo recuperar la carrera: $error';
       // Do not overwrite an unread checkpoint with a new session.
     } finally {
-      busy = false;
+      _operation = null;
       _notify();
     }
   }
@@ -136,7 +156,7 @@ class RunningController extends ChangeNotifier {
   }
 
   Future<void> checkpoint() async {
-    if (!started || _disposed || _checkpointPending) return;
+    if (!started || busy || _disposed || _checkpointPending) return;
     _checkpointPending = true;
     try {
       await TrainingStorage.saveActiveTraining(current);
@@ -150,15 +170,15 @@ class RunningController extends ChangeNotifier {
   }
 
   Future<void> checkGps() async {
-    if (busy || _disposed) return;
-    busy = true;
+    if (busy || running || _disposed) return;
+    _operation = RunningOperation.checkingGps;
     _notify();
     try {
       final p = await _location.prepare();
       status = 'GPS conectado · precisión ${p.accuracy.toStringAsFixed(1)} m';
     } catch (error) {
       status = '$error';
-    } finally { busy = false; _notify(); }
+    } finally { _operation = null; _notify(); }
   }
 
   void _accept(Position p) {
@@ -205,7 +225,7 @@ class RunningController extends ChangeNotifier {
 
   Future<void> startPause() async {
     if (busy || !ready || _disposed) return;
-    busy = true;
+    _operation = running ? RunningOperation.pausing : RunningOperation.starting;
     _notify();
     try {
       if (running) {
@@ -240,33 +260,62 @@ class RunningController extends ChangeNotifier {
       await _stop();
       status = 'Carrera en pausa: $error';
       _publishRoute();
-    } finally { busy = false; _notify(); }
+    } finally { _operation = null; _notify(); }
   }
 
   Future<bool> finish() async {
     if (busy || !started || _disposed) return false;
-    busy = true;
+    _operation = RunningOperation.saving;
     _notify();
     try {
       await _stop();
       await TrainingStorage.saveActiveTraining(current);
-      await TrainingStorage.saveTraining(current);
+      final saved = current;
+      await TrainingStorage.saveTraining(saved);
       await TrainingStorage.clearActiveTraining();
-      _watch.reset();
-      _restoredSeconds = 0;
-      _id = null;
-      _startTime = null;
-      _distance = 0;
-      _points.clear();
-      _segmentStarts.clear();
-      _publishRoute();
+      _lastSavedTraining = saved;
+      _resetSession();
       status = 'Entrenamiento guardado';
       storageError = null;
       return true;
     } catch (error) {
       status = 'No se pudo finalizar: $error. La carrera sigue en pausa';
       return false;
-    } finally { busy = false; _notify(); }
+    } finally { _operation = null; _notify(); }
+  }
+
+  /// Clears only the active session; saved history is never removed.
+  Future<bool> discard() async {
+    if (busy || !ready || !started || _disposed) return false;
+    _operation = RunningOperation.discarding;
+    _notify();
+    try {
+      await _stop();
+      await TrainingStorage.clearActiveTraining();
+      _resetSession();
+      status = 'Carrera descartada';
+      storageError = null;
+      return true;
+    } catch (error) {
+      status = 'No se pudo descartar: $error. La carrera sigue en pausa';
+      return false;
+    } finally {
+      _operation = null;
+      _notify();
+    }
+  }
+
+  void _resetSession() {
+    _watch.reset();
+    _restoredSeconds = 0;
+    _ticks = 0;
+    _id = null;
+    _startTime = null;
+    _distance = 0;
+    _points.clear();
+    _segmentStarts.clear();
+    _filter.reset();
+    _publishRoute();
   }
 
   @override

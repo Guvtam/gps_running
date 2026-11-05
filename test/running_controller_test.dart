@@ -80,7 +80,10 @@ void main() {
     await controller.startPause();
     expect(controller.route.value.map((s) => s.length), [2, 1]);
     expect(controller.distanceMeters, distance);
+    final beforeSave = controller.current;
     expect(await controller.finish(), isTrue);
+    expect(controller.lastSavedTraining!.id, beforeSave.id);
+    expect(controller.lastSavedTraining!.distanceMeters, distance);
     final saved = (await TrainingStorage.getTrainings()).single;
     expect(saved.routeSegments.map((s) => s.length), [2, 1]);
     expect(await TrainingStorage.getActiveTraining(), isNull);
@@ -134,4 +137,44 @@ void main() {
     restored.dispose();
     await gps.updates.close();
   });
+  test('discard removes the checkpoint and preserves previously saved history', () async {
+    final gps = FakeLocation();
+    final controller = RunningController(location: gps);
+    await controller.initialize();
+    await controller.startPause();
+    expect(await controller.finish(), isTrue);
+    final savedId = controller.lastSavedTraining!.id;
+    await controller.startPause();
+    final inFlightCheckpoint = controller.checkpoint();
+    final discard = controller.discard();
+    // Lifecycle changes must not queue a new backup after the discard.
+    await controller.checkpoint();
+    await inFlightCheckpoint;
+    expect(await discard, isTrue);
+    expect(controller.started, isFalse);
+    expect(controller.running, isFalse);
+    expect(controller.distanceMeters, 0);
+    expect(controller.seconds, 0);
+    expect(controller.route.value, isEmpty);
+    expect(await TrainingStorage.getActiveTraining(), isNull);
+    expect((await TrainingStorage.getTrainings()).single.id, savedId);
+    expect(await controller.discard(), isFalse);
+    controller.dispose();
+    await gps.updates.close();
+  });
+
+  test('a new GPS check cannot compete with an active recorder', () async {
+    final gps = FakeLocation();
+    final controller = RunningController(location: gps);
+    await controller.initialize();
+    await controller.startPause();
+    final calls = gps.calls;
+    await controller.checkGps();
+    expect(gps.calls, calls);
+    expect(controller.running, isTrue);
+    await controller.startPause();
+    controller.dispose();
+    await gps.updates.close();
+  });
+
 }

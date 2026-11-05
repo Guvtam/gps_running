@@ -8,7 +8,14 @@ String formatDuration(int seconds) {
 String formatDate(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 String formatTime(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 String formatPace(TrainingRecord t) {
-  if (t.distanceMeters < 10) return '--:--';
-  final seconds = t.averagePaceSecondsPerKm.round();
+  return formatPaceSeconds(t.distanceMeters < 10 || t.durationSeconds <= 0
+      ? null : t.averagePaceSecondsPerKm);
+}
+
+String formatPaceSeconds(double? paceSecondsPerKm) {
+  if (paceSecondsPerKm == null || !paceSecondsPerKm.isFinite || paceSecondsPerKm <= 0) {
+    return '--:--';
+  }
+  final seconds = paceSecondsPerKm.round();
   return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
 }
