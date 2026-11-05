@@ -30,10 +30,9 @@ String metric(WidgetTester tester, String key) =>
 Future<void> tapKey(WidgetTester tester, String key) async {
   final target = find.byKey(ValueKey(key));
   await tester.ensureVisible(target);
-  await tester.runAsync(() async {
-    await tester.tap(target);
-    await Future<void>.delayed(Duration.zero);
-  });
+  // The injected loaders are in-memory futures, so keep button callbacks and
+  // FutureBuilder on the same fake clock as the rest of this widget test.
+  await tester.tap(target);
   await tester.pumpAndSettle();
 }
 
