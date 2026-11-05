@@ -52,6 +52,7 @@ void main() {
     await controller.initialize();
     final start = controller.startPause();
     await controller.startPause();
+    await Future<void>.delayed(Duration.zero);
     expect(gps.calls, 1);
     expect(controller.running, isFalse);
     ready.complete(fix(DateTime.now()));

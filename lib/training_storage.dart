@@ -14,7 +14,7 @@ class TrainingStorage {
   // Serialize checkpoint writes and finalization to prevent stale resurrection.
   static Future<void> _enqueue(Future<void> Function() operation) {
     final next = _writes.then((_) => operation());
-    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return next;
   }
 
@@ -78,7 +78,7 @@ class TrainingStorage {
   // Guardar un entrenamiento nuevo.
   static Future<void> saveTraining(
     TrainingRecord training,
-  ) async {
+  ) => _enqueue(() async {
     final trainings = await getTrainings();
 
     trainings.removeWhere((item) => item.id == training.id);
@@ -98,10 +98,10 @@ class TrainingStorage {
     if (!saved) {
       throw Exception('No se pudo guardar el entrenamiento');
     }
-  }
+  });
 
   // Eliminar un entrenamiento por su identificador.
-  static Future<void> deleteTraining(String id) async {
+  static Future<void> deleteTraining(String id) => _enqueue(() async {
     final trainings = await getTrainings();
 
     trainings.removeWhere(
@@ -122,6 +122,6 @@ class TrainingStorage {
     if (!saved) {
       throw Exception('No se pudo eliminar el entrenamiento');
     }
-  }
+  });
 }
 

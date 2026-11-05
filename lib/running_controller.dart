@@ -73,6 +73,7 @@ class RunningController extends ChangeNotifier {
   final ValueNotifier<List<List<LatLng>>> route = ValueNotifier([]);
   StreamSubscription<Position>? _subscription;
   Timer? _timer;
+  Future<void> _stopping = Future<void>.value();
   int _restoredSeconds = 0;
   int _ticks = 0;
   int _generation = 0;
@@ -189,7 +190,8 @@ class RunningController extends ChangeNotifier {
     final subscription = _subscription;
     _subscription = null;
     _filter.reset();
-    await subscription?.cancel();
+    _stopping = subscription?.cancel() ?? _stopping;
+    await _stopping;
   }
 
   void _gpsInterrupted(Object error, int generation) {
@@ -212,6 +214,8 @@ class RunningController extends ChangeNotifier {
         await TrainingStorage.saveActiveTraining(current);
       } else {
         // Permission, service and first accurate fix must all succeed first.
+        await _stopping;
+        if (_disposed) return;
         final p = await _location.prepare();
         if (_disposed) return;
         final generation = ++_generation;

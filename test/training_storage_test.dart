@@ -34,6 +34,14 @@ void main() {
     expect(await TrainingStorage.getActiveTraining(), isNull);
   });
 
+  test('concurrent history saves do not drop either training', () async {
+    await Future.wait([
+      TrainingStorage.saveTraining(record('one')),
+      TrainingStorage.saveTraining(record('two')),
+    ]);
+    expect((await TrainingStorage.getTrainings()).map((r) => r.id).toSet(), {'one', 'two'});
+  });
+
   test('finishing twice is idempotent and a finished checkpoint is not restored', () async {
     final training = record('one');
     await TrainingStorage.saveActiveTraining(training);
