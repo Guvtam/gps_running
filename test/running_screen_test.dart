@@ -47,7 +47,7 @@ void main() {
     expect(controller.running, isTrue);
     expect(await TrainingStorage.getTrainings(), isEmpty);
     await cleanUp(tester, controller, gps);
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('confirming finish opens the saved summary exactly once', (tester) async {
     final (controller, gps) = await mountRunner(tester);
@@ -58,7 +58,7 @@ void main() {
     expect((await TrainingStorage.getTrainings()).length, 1);
     expect(await TrainingStorage.getActiveTraining(), isNull);
     await cleanUp(tester, controller, gps);
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('discard requires confirmation and can be canceled', (tester) async {
     final (controller, gps) = await mountRunner(tester);
@@ -73,7 +73,7 @@ void main() {
     expect(await TrainingStorage.getActiveTraining(), isNull);
     expect(await TrainingStorage.getTrainings(), isEmpty);
     await cleanUp(tester, controller, gps);
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('GPS startup has its own progress label and disables the main button', (tester) async {
     final gps = FakeLocation();
@@ -95,5 +95,5 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Carrera en pausa'), findsWidgets);
     await cleanUp(tester, controller, gps);
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
