@@ -36,7 +36,12 @@ Future<void> cleanUp(WidgetTester tester, RunningController c, FakeLocation gps)
 Future<void> tapKey(WidgetTester tester, String key) async {
   final target = find.byKey(ValueKey(key));
   await tester.ensureVisible(target);
-  await tester.tap(target);
+  // Button callbacks perform real asynchronous persistence. Let those futures
+  // finish before advancing the fake clock through the progress animation.
+  await tester.runAsync(() async {
+    await tester.tap(target);
+    await Future<void>.delayed(Duration.zero);
+  });
   await tester.pumpAndSettle();
 }
 
